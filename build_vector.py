@@ -135,7 +135,7 @@ load_dotenv()
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 # IMPORTANT: Set your source folder here
-PDF_SOURCE_FOLDER = "pdfs" 
+PDF_SOURCE_FOLDER = "pdfs/supreme_court_judgments/2019" 
 FAISS_INDEX_PATH = "faiss_index"
 
 def load_documents_from_folders(directory_path):
