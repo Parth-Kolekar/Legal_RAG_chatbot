@@ -1,14 +1,14 @@
-streamlit
-python-dotenv
-pdfplumber
-langchain
-langchain-community
-langchain-google-genai
-faiss-cpu
+# streamlit
+# python-dotenv
+# pdfplumber
+# langchain
+# langchain-community
+# langchain-google-genai
+# faiss-cpu
 # faiss-gpu  # Uncomment if you have a compatible GPU and want to use it for faster indexing
-sentence-transformers
-google-generativeai
-datasets
+# sentence-transformers
+# google-generativeai
+# datasets
 streamlit==1.37.1
 
 langchain==0.1.20
