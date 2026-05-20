@@ -1,3 +1,6 @@
 .env
 venv
 pdfs
+.pytest_cache
+gothic-airlock-466017-u4-d7ea22e5d92b.json
+__pycache__

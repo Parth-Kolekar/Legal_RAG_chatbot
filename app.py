@@ -1,108 +1,182 @@
-import streamlit as st
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from PyPDF2 import PdfReader
 import os
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-import google.generativeai as genai
-from langchain.vectorstores import FAISS
+import streamlit as st
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.chains.question_answering import load_qa_chain
-from langchain.prompts import PromptTemplate
+from langchain.chains import ConversationalRetrievalChain
+from langchain.memory import ConversationBufferWindowMemory
 from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv()
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-# Define the path for the FAISS index
+# ── CONFIG ───────────────────────────────────────────────────────────────────
 FAISS_INDEX_PATH = "faiss_index"
+EMBEDDING_MODEL  = "all-MiniLM-L6-v2"
+GEMINI_MODEL     = "gemini-3.5-flash"
+# ─────────────────────────────────────────────────────────────────────────────
 
-def get_pdf_text(pdf_docs):
-    text = ""
-    for pdf in pdf_docs:
-        pdf_reader = PdfReader(pdf)
-        for page in pdf_reader.pages:
-            text += page.extract_text()
-    return text
 
-def get_text_chunks(text):
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=10000,
-        chunk_overlap=1000,
-    )
-    return text_splitter.split_text(text)
-
-def get_vector_store(text_chunks):
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-    vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
-    vector_store.save_local(FAISS_INDEX_PATH)
-
-# FIX 1: Removed the unused 'vector_store' argument from the function definition.
-def get_conversational_chain():
-    prompt_template = """Answer the question as detailed as possible from the provided context, make sure to provide all the details, if the answer is not in provided context just say, "answer is not available in the context", dont provide the wrong answer.\n\n
-    Context: \n{context}\nQuestion: \n{question}\n
-    
-    Answer:
-    
+@st.cache_resource(show_spinner="Loading knowledge base...")
+def load_chain():
     """
-    model = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.3)
-    prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
-    chain = load_qa_chain(model, chain_type="stuff", prompt=prompt)
-    return chain
+    Load the vector store and set up the conversational chain.
+    Cached so it only runs once per session.
+    """
+    # 1. Load embeddings (same model used in build_vector.py)
+    embeddings = HuggingFaceEmbeddings(
+        model_name=EMBEDDING_MODEL,
+        model_kwargs={"device": "cpu"},
+        encode_kwargs={"normalize_embeddings": True},
+    )
+    # embeddings = HuggingFaceEmbeddings(
+    # model_name=EMBEDDING_MODEL,
+    # model_kwargs={"device": "cuda"},
+    # encode_kwargs={"normalize_embeddings": True},
+    # )  
+    # for gpu
 
-def user_input(user_question):
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-    
-    # Load the FAISS index
-    new_db = FAISS.load_local(
+    # 2. Load FAISS index from disk
+    db = FAISS.load_local(
         FAISS_INDEX_PATH,
         embeddings,
-        allow_dangerous_deserialization=True
+        allow_dangerous_deserialization=True,
     )
-    
-    # Perform similarity search
-    docs = new_db.similarity_search(user_question)
-    
-    # Get the conversational chain and run it
-    chain = get_conversational_chain()
-    response = chain({"input_documents": docs, "question": user_question}, return_only_outputs=True)
-    
-    print(response)
-    st.write("Reply: ", response["output_text"])
 
-def main():
-    st.set_page_config(page_title="Legal RAG Chatbot", page_icon=":robot:")
-    st.title("Legal RAG Chatbot using Gemini Pro")
-    
-    # Sidebar for PDF uploads
-    with st.sidebar:
-        st.title("Upload PDF Documents")
-        pdf_docs = st.file_uploader("Upload PDF files and click on submit", type=["pdf"], accept_multiple_files=True)
-        if st.button("Submit & Process"):
-            if pdf_docs:
-                with st.spinner("Processing PDF documents..."):
-                    raw_text = get_pdf_text(pdf_docs)
-                    text_chunks = get_text_chunks(raw_text)
-                    get_vector_store(text_chunks)
-                    st.success("PDF documents processed and vector store created successfully!")
-            else:
-                st.warning("Please upload at least one PDF file.")
+    # 3. Gemini as LLM — reads GOOGLE_API_KEY from .env or Streamlit secrets
+    llm = ChatGoogleGenerativeAI(
+        model=GEMINI_MODEL,
+        temperature=0.2,
+        google_api_key=os.getenv("GOOGLE_API_KEY"),
+        convert_system_message_to_human=True,
+    )
 
-    st.header("Ask a Question")
+    # 4. Memory — keeps last 5 exchanges so follow-up questions work
+    memory = ConversationBufferWindowMemory(
+        k=5,
+        memory_key="chat_history",
+        return_messages=True,
+        output_key="answer",
+    )
 
-    # FIX 2: Restructured the Q&A section to use a button.
-    # This prevents API calls on every keystroke.
-    if os.path.exists(FAISS_INDEX_PATH):
-        user_question = st.text_input("Ask a question about the legal documents:", key="user_question")
-        if st.button("Get Answer"):
-            if user_question:
-                with st.spinner("Finding the answer..."):
-                    user_input(user_question)
-            else:
-                st.warning("Please enter a question.")
-    else:
-        st.info("Please upload and process PDF documents in the sidebar to begin.")
+    # 5. ConversationalRetrievalChain — handles follow-up questions naturally
+    chain = ConversationalRetrievalChain.from_llm(
+        llm=llm,
+        retriever=db.as_retriever(search_kwargs={"k": 5}),
+        memory=memory,
+        return_source_documents=True,
+        verbose=False,
+    )
+    return chain
 
 
-if __name__ == "__main__":
-    main()
+def format_sources(source_docs: list) -> str:
+    """Format source documents into a readable citation list."""
+    seen = set()
+    lines = []
+    for doc in source_docs:
+        title = doc.metadata.get("title", doc.metadata.get("source", "Unknown"))
+        year  = doc.metadata.get("year", "N/A")
+        key   = (title, year)
+        if key not in seen:
+            seen.add(key)
+            lines.append(f"• **{title[:80]}** ({year})")
+    return "\n".join(lines) if lines else "Sources not available."
+
+
+# ── PAGE SETUP ────────────────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="SC Judgment Chatbot",
+    page_icon="⚖️",
+    layout="centered",
+)
+
+st.title("⚖️ Supreme Court Judgment Chatbot")
+st.caption("Ask questions about Indian Supreme Court judgments (2025). "
+           "Powered by Gemini 3.5 Flash + FAISS.")
+
+# ── SIDEBAR ───────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.header("About")
+    st.info(
+        "This chatbot can answer questions based on Supreme Court judgments.\n\n"
+        "**Tip:** Ask follow-up questions — it remembers the conversation context.\n\n"
+        "**Examples:**\n"
+        "- What is the right to life under Article 21?\n"
+        "- What factors does the court consider for bail?\n"
+        "- Explain the principle of natural justice."
+    )
+
+    if st.button("🗑️ Clear chat history"):
+        st.session_state.messages = []
+        st.rerun()
+
+    st.divider()
+    st.caption("Data source: Indian Kanoon API\nLLM: Gemini 3.5 Flash (free tier)")
+
+# ── LOAD CHAIN ────────────────────────────────────────────────────────────────
+if not os.path.exists(FAISS_INDEX_PATH):
+    st.error("⚠️ Vector index not found!")
+    st.info(
+        "You need to build the knowledge base first:\n\n"
+        "```bash\n"
+        "python fetch_judgments.py   # download judgments\n"
+        "python build_vector.py      # build the index\n"
+        "```"
+    )
+    st.stop()
+
+chain = load_chain()
+
+# ── CHAT HISTORY ──────────────────────────────────────────────────────────────
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {
+            "role": "assistant",
+            "content": "Hello! I can help you understand Supreme Court judgments. "
+                       "What would you like to know?",
+        }
+    ]
+
+# Display all prior messages
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+        if "sources" in msg and msg["sources"]:
+            with st.expander("📄 Sources used"):
+                st.markdown(msg["sources"])
+
+# ── HANDLE NEW INPUT ──────────────────────────────────────────────────────────
+if prompt := st.chat_input("Ask a question about SC judgments..."):
+
+    # Show user message
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    # Get response
+    with st.chat_message("assistant"):
+        with st.spinner("Searching judgments..."):
+            try:
+                result   = chain({"question": prompt})
+                answer   = result.get("answer", "Sorry, I couldn't find an answer.")
+                src_docs = result.get("source_documents", [])
+                sources  = format_sources(src_docs)
+
+                st.markdown(answer)
+                if src_docs:
+                    with st.expander("📄 Sources used"):
+                        st.markdown(sources)
+
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": answer,
+                    "sources": sources,
+                })
+
+            except Exception as e:
+                err_msg = f"Error: {str(e)}"
+                st.error(err_msg)
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": err_msg,
+                })

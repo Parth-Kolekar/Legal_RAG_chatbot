@@ -1,8 +1,11 @@
 streamlit
-google-generativeai
-langchain
 python-dotenv
-PyPDF2
-# chromadb
+pdfplumber
+langchain
+langchain-community
+langchain-google-genai
 faiss-cpu
-langchain_google_genai
+# faiss-gpu  # Uncomment if you have a compatible GPU and want to use it for faster indexing
+sentence-transformers
+google-generativeai
+datasets
