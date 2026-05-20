@@ -4,7 +4,7 @@ import streamlit as st
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.chains import ConversationalRetrievalChain
+# from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferWindowMemory
 from dotenv import load_dotenv
 
@@ -29,7 +29,8 @@ def load_chain():
     llm = ChatGoogleGenerativeAI(
         model="gemini-3.5-flash",
         temperature=0.2,
-        google_api_key=os.getenv("GOOGLE_API_KEY"),
+        # google_api_key=os.getenv("GOOGLE_API_KEY"),
+        google_api_key=st.secrets["GOOGLE_API_KEY"],
         convert_system_message_to_human=True,
     )
     memory = ConversationBufferWindowMemory(
