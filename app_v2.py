@@ -24,8 +24,9 @@ def load_chain():
         encode_kwargs={"normalize_embeddings": True},
     )
     db = FAISS.load_local(
-        FAISS_INDEX_PATH, embeddings,
-        allow_dangerous_deserialization=True,
+    "faiss_index",
+    embeddings,
+    allow_dangerous_deserialization=True
     )
     llm = ChatGoogleGenerativeAI(
         model="gemini-3.5-flash",
