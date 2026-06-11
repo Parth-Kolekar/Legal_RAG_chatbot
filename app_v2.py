@@ -11,45 +11,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# FAISS_INDEX_PATH = "faiss_index_v2"
+# Prefer environment variable; avoid accessing Streamlit secrets when none exist
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+FAISS_INDEX_PATH = "faiss_index_v2"
 EMBEDDING_MODEL  = "all-MiniLM-L6-v2"
 
 
 # ── Load everything once and cache ───────────────────────────────────────────
-@st.cache_resource(show_spinner="Loading knowledge base...")
-# def load_chain():
-    # embeddings = HuggingFaceEmbeddings(
-    #     model_name=EMBEDDING_MODEL,
-    #     model_kwargs={"device": "cpu"},#cuda for gpu
-    #     encode_kwargs={"normalize_embeddings": True},
-    # )
-    # db = FAISS.load_local(
-    # "faiss_index",
-    # embeddings,x
-    # allow_dangerous_deserialization=True
-    # )
-    # llm = ChatGoogleGenerativeAI(
-    #     model="gemini-3.5-flash",
-    #     temperature=0.2,
-    #     # google_api_key=os.getenv("GOOGLE_API_KEY"),
-    #     google_api_key=st.secrets["GOOGLE_API_KEY"],
-    #     convert_system_message_to_human=True,
-    # )
-    # memory = ConversationBufferWindowMemory(
-    #     k=6,
-    #     memory_key="chat_history",
-    #     return_messages=True,
-    #     output_key="answer",
-    # )
-    # chain = ConversationalRetrievalChain.from_llm(
-    #     llm=llm,
-    #     retriever=db.as_retriever(search_kwargs={"k": 5}),
-    #     memory=memory,
-    #     return_source_documents=True,
-    #     verbose=False,
-    # )
-    # return chain
-
 @st.cache_resource(show_spinner="Loading knowledge base...")
 def load_chain():
 
@@ -59,30 +28,17 @@ def load_chain():
         encode_kwargs={"normalize_embeddings": True},
     )
 
-    # BUILD VECTOR DB DIRECTLY FROM HF DATASET
-    from datasets import load_dataset
-    from langchain.docstore.document import Document
-
-    ds = load_dataset(
-        "vihaannnn/Indian-Supreme-Court-Judgements-Chunked",
-        split="train"
+    db = FAISS.load_local(
+        FAISS_INDEX_PATH,
+        embeddings,
+        allow_dangerous_deserialization=True,
     )
-
-    docs = [
-        Document(
-            page_content=row["text"],
-            metadata={"source": f"chunk_{i}"}
-        )
-        for i, row in enumerate(ds)
-        if len(row["text"].strip()) > 50
-    ]
-
-    db = FAISS.from_documents(docs, embeddings)
 
     llm = ChatGoogleGenerativeAI(
         model="gemini-3.5-flash",
         temperature=0.2,
         google_api_key=st.secrets["GOOGLE_API_KEY"],
+        # google_api_key=GOOGLE_API_KEY,
         convert_system_message_to_human=True,
     )
 
@@ -102,6 +58,10 @@ def load_chain():
     )
 
     return chain
+
+if not os.path.exists(FAISS_INDEX_PATH):
+    st.error("⚠️ Vector index not found!")
+    st.stop()
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(page_title="SC Judgment Chatbot", page_icon="⚖️", layout="centered")
