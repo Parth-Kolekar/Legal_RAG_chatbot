@@ -9,6 +9,9 @@ faiss-cpu
 sentence-transformers
 
 datasets
+torch
+torchvision
+transformers
 
 python-dotenv
 pypdf
