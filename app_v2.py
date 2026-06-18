@@ -122,7 +122,8 @@ if prompt := st.chat_input("Ask about any SC judgment..."):
     with st.chat_message("assistant"):
         with st.spinner("Searching judgments..."):
             try:
-                result   = chain({"question": prompt})
+                # result   = chain({"question": prompt})
+                result = chain.invoke({"question": prompt})
                 answer   = result.get("answer", "Sorry, I couldn't find a relevant answer.")
                 src_docs = result.get("source_documents", [])
 
